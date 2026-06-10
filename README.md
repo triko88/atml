@@ -15,8 +15,8 @@ The core aim of the library is to **provide efficient, high level abstractions
 to infer deep learning models in modern C++.** This includes both researchers
 prototyping novel models, and developers supporting novel accelerators.
 
-## Dependencies
-- Any C++ compiler supporting C++23. GCC and Clang will work out of the box.
+## Dependency
+Any C++ compiler supporting C++23. GCC and Clang will work out of the box.
 
 ## Current state
 Currently, this is work in progress. And I've just implemented the foundation
@@ -24,10 +24,10 @@ to implement tensors.
 
 ## Roadmap
 
-- [] Tensor library
-- [] Lazy evaluator for tensor ops
-- [] Reverse-mode autodiff
-- [] Kernel scheduling and fusion
-- [] CPU codegen support
-- [] Vulkan codegen support
-- [] ROCm codegen support
+- [ ] Tensor library
+- [ ] Lazy evaluator for tensor ops
+- [ ] Reverse-mode autodiff
+- [ ] Kernel scheduling and fusion
+- [ ] CPU codegen support
+- [ ] Vulkan codegen support
+- [ ] ROCm codegen support
