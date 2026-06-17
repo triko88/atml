@@ -16,7 +16,7 @@ namespace atml {
 
   View expand(const View& view, const Shape& to) {
     View res = view;
-    auto idx = 0;
+    std::size_t idx = 0;
 
     while (idx < to.size() and res.shape[idx] == to[idx])
       idx++;
@@ -42,7 +42,7 @@ namespace atml {
   sdim_t flat_offset(const View& view, std::span<const dim_t> ids) {
     sdim_t off = view.offset;
 
-    for (auto dim = 0; dim < ids.size(); dim++)
+    for (std::size_t dim = 0; dim < ids.size(); dim++)
       off += sdim_t(ids[dim]) * view.strides[dim];
 
     return off;

@@ -48,6 +48,12 @@ target_include_directories(atml
 # PUBLIC: code that links atml is also compiled as (at least) C++23.
 target_compile_features(atml PUBLIC cxx_std_23)
 
+# PRIVATE: the compiler options are exclusively for atml.
+target_compile_options(atml PRIVATE
+  $<$<CXX_COMPILER_ID:GNU,Clang>: -Wall -Wextra -Wpedantic -Werror>
+  $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+)
+
 # ---------------------------------------------------------------------------
 # 4. Tests
 # ---------------------------------------------------------------------------

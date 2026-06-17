@@ -89,7 +89,7 @@ static ut::suite shape_tracker_suite = [] {
     };
 
     auto res = reshape(view, {6});
-    expect(res.has_value()) >> fatal;
+    (void)(expect(res.has_value()) >> fatal);
 
     expect(res->strides == Strides{1});
 

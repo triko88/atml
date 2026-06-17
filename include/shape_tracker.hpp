@@ -21,7 +21,7 @@ namespace atml {
 
     while (idx-- > 0) {
       strides[idx] = acc;
-      acc *= sdim_t{shape[idx]};
+      acc *= static_cast<sdim_t>(shape[idx]);
     }
 
     return strides;
