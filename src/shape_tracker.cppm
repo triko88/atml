@@ -1,19 +1,14 @@
-#pragma once
+export module atml;
 
-#include <vector>
-#include <ranges>
-#include <algorithm>
-#include <optional>
-#include <utility>
-#include <span>
+import std;
 
-namespace atml {
+export namespace atml {
   using dim_t = std::size_t;
   using sdim_t = std::ptrdiff_t;
   using Shape = std::vector<dim_t>;
   using Strides = std::vector<sdim_t>;
 
-  inline Strides row_major_strides(const Shape& shape) {
+  Strides row_major_strides(const Shape& shape) {
     Strides strides(shape.size());
 
     sdim_t acc = 1;
@@ -38,7 +33,7 @@ namespace atml {
     }
 
     bool contiguous() const {
-      return (not mask.has_value()) and offset == 0 
+      return (not mask.has_value()) and offset == 0
         and strides == row_major_strides(shape);
     }
   };
@@ -65,6 +60,6 @@ namespace atml {
 
   View permute(const View&, std::span<const dim_t>);
   View expand(const View&, const Shape&);
-  std::optional<View> reshape(const View&, const Shape&); 
+  std::optional<View> reshape(const View&, const Shape&);
   sdim_t flat_offset(const View&, std::span<const dim_t>);
 }

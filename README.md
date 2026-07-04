@@ -15,8 +15,13 @@ The core aim of the library is to **provide efficient, high level abstractions
 to infer deep learning models in modern C++.** This includes both researchers
 prototyping novel models, and developers supporting novel accelerators.
 
+To stay consistent with modern C++, I'm implementing this library as a C++
+module. For the implementation guide, please refer 
+[Bjarne's 21st century C++ paper](https://www.stroustrup.com/21st-Century-C++.pdf).
+
 ## Dependency
-Any C++ compiler supporting C++23. GCC and Clang will work out of the box.
+Any C++ compiler supporting C++23. GCC and Clang will work out of the box. Use
+`ninja` to scan for modules.
 
 ## Current state
 Currently, this is work in progress. And I've just implemented the foundation

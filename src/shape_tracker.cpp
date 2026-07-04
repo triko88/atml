@@ -1,4 +1,6 @@
-#include "shape_tracker.hpp"
+module atml;
+
+import std;
 
 namespace atml {
   View permute(const View& view, std::span<const dim_t> order) {
