@@ -6,6 +6,9 @@
 #     CMakeLists.txt          <- this file
 #     src/shape_tracker.cppm  <- module interface unit  (export module atml;)
 #     src/shape_tracker.cpp   <- module implementation  (module atml;)
+#     src/atml_dim.cppm       <- primary interface of atml.core (Dim API)
+#     src/atml_sym.cppm       <- atml.core:sym partition (Sym, Bindings)
+#     src/atml_dtype.cppm     <- atml.core:dtype partition (DType, f16)
 #     src/atml.cpp            <- entry point (provides main())
 #     tests/CMakeLists.txt    <- unit tests (Boost.UT, wired in below)
 #
@@ -53,6 +56,9 @@ target_sources(atml
     PUBLIC
         FILE_SET CXX_MODULES FILES
             src/shape_tracker.cppm
+            src/atml_dtype.cppm
+            src/atml_sym.cppm
+            src/atml_dim.cppm
 )
 
 # A namespaced alias so the library links the same way whether pulled in via
