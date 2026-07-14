@@ -2,6 +2,8 @@ export module atml.core:sym;
 
 import std;
 
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+
 namespace atml::intern {
   enum class Op { Add, Mul, FDiv, Mod };
 
@@ -171,7 +173,6 @@ export namespace atml {
     return atml::intern::imod(lhs, rhs);
   }
 
-  template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
   std::int64_t eval(const Sym& sym, const Bindings& binds) {
     return std::visit(overloaded {
         [&](std::int64_t val) { return val; },

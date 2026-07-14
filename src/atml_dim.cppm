@@ -1,26 +1,54 @@
-export module atml.core;
+export module atml.core:dim;
 
-export import :dtype;
-export import :sym;
-
+import :sym;
 import std;
 
 export namespace atml {
   using Dim = std::variant<std::int64_t, Sym>;
 
   // struct overloaded => defined in atml_sym.cppm
-  Dim operator+(const Dim& lhs, const Dim& rhs) {
+  Dim operator + (const Dim& lhs, const Dim& rhs) {
     return std::visit(overloaded{
         [](std::int64_t x, std::int64_t y) -> Dim{ return x + y; },
         [](auto&& x, auto&& y) -> Dim{ return Sym{x} + Sym{y}; }
         }, lhs, rhs);
   }
 
-  Dim operator*(const Dim& lhs, const Dim& rhs) {
+  Dim& operator += (Dim& lhs, const std::int64_t rhs) {
+    lhs = lhs + rhs;
+    return lhs;
+  }
+
+  Dim& operator += (Dim& lhs, const Dim& rhs) {
+    lhs = lhs + rhs;
+    return lhs;
+  }
+
+
+  Dim operator * (const Dim& lhs, const Dim& rhs) {
     return std::visit(overloaded{
         [](std::int64_t x, std::int64_t y) -> Dim{ return x * y; },
         [](auto&& x, auto&& y) -> Dim{ return Sym{x} * Sym{y}; }
         }, lhs, rhs);
+  }
+
+  Dim& operator *= (Dim& lhs, const std::int64_t rhs) {
+    lhs = lhs * rhs;
+    return lhs;
+  }
+
+  Dim& operator *= (Dim& lhs, const Dim& rhs) {
+    lhs = lhs * rhs;
+    return lhs;
+  }
+
+  Dim operator - (const Dim& lhs, const Dim& rhs) {
+    return lhs + (rhs * -1);
+  }
+
+  Dim& operator -= (Dim& lhs, Dim& rhs) {
+    lhs = lhs + (rhs * -1);
+    return lhs;
   }
 
   Dim floordiv(const Dim& lhs, const Dim& rhs) {

@@ -36,7 +36,7 @@ add_library(Boost::ut_module ALIAS ut_module)
 # One test executable. Add more .cpp files here as your suite grows; UT auto-
 # registers every test across all translation units, so you keep one binary.
 add_executable(atml_tests
-    test_shape_tracker.cpp
+    test_main.cpp
 )
 
 # Link the library under test plus the framework.
@@ -68,4 +68,31 @@ foreach(core_test IN ITEMS test_dtype test_sym test_dim)
             Boost::ut_module
     )
     add_test(NAME ${core_test} COMMAND ${core_test})
+endforeach()
+
+# ---------------------------------------------------------------------------
+# atml.view tests (Day 2) — the movement ops checked against a REAL dense
+# oracle. The oracle lives in its own module (test_oracle), built here as a
+# static library so all three view test executables can import it. It is
+# test-local: NOT part of the atml library under test.
+# ---------------------------------------------------------------------------
+add_library(test_oracle_lib STATIC)
+target_sources(test_oracle_lib
+    PUBLIC
+        FILE_SET CXX_MODULES
+        BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
+        FILES oracle.cppm
+)
+target_compile_features(test_oracle_lib PUBLIC cxx_std_23)
+add_library(test::oracle ALIAS test_oracle_lib)
+
+foreach(view_test IN ITEMS test_view_ops test_view_property test_view_symbolic)
+    add_executable(${view_test} ${view_test}.cpp)
+    target_link_libraries(${view_test}
+        PRIVATE
+            atml::atml
+            Boost::ut_module
+            test::oracle
+    )
+    add_test(NAME ${view_test} COMMAND ${view_test})
 endforeach()
