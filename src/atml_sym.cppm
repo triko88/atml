@@ -94,6 +94,9 @@ namespace atml::intern {
   }
 
   constexpr Bound fdiv_bounds(const Bound& left, const Bound& right) {
+    if (right.vmin <= 0 and right.vmax >= 0)
+      return kFullRange;
+
     std::array<std::int64_t, 4> corners {
       sat_fdiv(left.vmin, right.vmin),
       sat_fdiv(left.vmin, right.vmax),
