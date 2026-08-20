@@ -60,7 +60,8 @@ add_test(NAME atml_tests COMMAND atml_tests)
 # target) and `import boost.ut;`. As above, atml::atml supplies main() and
 # Boost.UT's runner executes the suites at program exit.
 # ---------------------------------------------------------------------------
-foreach(core_test IN ITEMS test_dtype test_sym test_dim)
+foreach(core_test IN ITEMS test_dtype test_sym test_dim
+                           test_sym_bounds test_sym_soundness)
     add_executable(${core_test} ${core_test}.cpp)
     target_link_libraries(${core_test}
         PRIVATE
@@ -70,29 +71,15 @@ foreach(core_test IN ITEMS test_dtype test_sym test_dim)
     add_test(NAME ${core_test} COMMAND ${core_test})
 endforeach()
 
-# ---------------------------------------------------------------------------
-# atml.view tests (Day 2) — the movement ops checked against a REAL dense
-# oracle. The oracle lives in its own module (test_oracle), built here as a
-# static library so all three view test executables can import it. It is
-# test-local: NOT part of the atml library under test.
-# ---------------------------------------------------------------------------
-add_library(test_oracle_lib STATIC)
-target_sources(test_oracle_lib
-    PUBLIC
-        FILE_SET CXX_MODULES
-        BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
-        FILES oracle.cppm
-)
-target_compile_features(test_oracle_lib PUBLIC cxx_std_23)
-add_library(test::oracle ALIAS test_oracle_lib)
-
-foreach(view_test IN ITEMS test_view_ops test_view_property test_view_symbolic)
-    add_executable(${view_test} ${view_test}.cpp)
-    target_link_libraries(${view_test}
-        PRIVATE
-            atml::atml
-            Boost::ut_module
-            test::oracle
+# The Phase A bounds tests are new code, so they are held to the same warning
+# bar as the library itself. (The older core tests predate this and are left
+# alone.) Sanitizers come from atml's PUBLIC flags -- see ATML_SANITIZE in the
+# top-level CMakeLists.txt; putting them on the library is what makes the
+# bounds propagation code itself instrumented, not just the test TU.
+foreach(strict_test IN ITEMS test_sym_bounds test_sym_soundness)
+    target_compile_options(${strict_test} PRIVATE
+      $<$<CXX_COMPILER_ID:GNU,Clang>: -Wall -Wextra -Wpedantic -Werror>
+      $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
     )
-    add_test(NAME ${view_test} COMMAND ${view_test})
 endforeach()
+

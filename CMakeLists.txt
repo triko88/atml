@@ -55,7 +55,6 @@ target_sources(atml
             src/atml_dtype.cppm
             src/atml_sym.cppm
             src/atml_dim.cppm
-            src/atml_view.cppm
 )
 
 # A namespaced alias so the library links the same way whether pulled in via
@@ -74,6 +73,31 @@ target_compile_options(atml PRIVATE
   $<$<CXX_COMPILER_ID:GNU,Clang>: -Wall -Wextra -Wpedantic -Werror>
   $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
 )
+
+# ---------------------------------------------------------------------------
+# 2b. Sanitizers
+# ---------------------------------------------------------------------------
+# ASan + UBSan, PUBLIC so everything that links atml inherits both the compile
+# and the link flags.
+#
+# These MUST sit on the library, not just on the test executables: the bounds
+# engine lives in the atml.core:sym module interface, which is compiled into
+# libatml.a by this target. Test-target-only flags would leave the code under
+# test uninstrumented, and the whole point is that a signed-overflow slip in the
+# saturating interval arithmetic becomes a hard failure instead of a silently
+# wrong -- and therefore unsound -- bound.
+#
+# Flip off with -DATML_SANITIZE=OFF for release builds, or if the `std` module
+# and ASan ever disagree under a given toolchain.
+option(ATML_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" ON)
+if(ATML_SANITIZE)
+    target_compile_options(atml PUBLIC
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-fsanitize=undefined,address -fno-omit-frame-pointer>
+    )
+    target_link_options(atml PUBLIC
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-fsanitize=undefined,address>
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # 3. Tests
