@@ -24,7 +24,6 @@ export namespace atml {
     return lhs;
   }
 
-
   Dim operator * (const Dim& lhs, const Dim& rhs) {
     return std::visit(overloaded{
         [](std::int64_t x, std::int64_t y) -> Dim{ return x * y; },

@@ -6,6 +6,15 @@
 // soundness-shaped assertions (saturation, vmin <= vmax) pass at red on
 // purpose — they are the guardrail for the green phase and for every later
 // tightening of the propagation rules.
+//
+// DAY 2 adds two groups, both currently failing against the shipped engine:
+//   * Mod — add_expr still reads `case Op::Mod: break;`, so every Mod node is
+//     kFullRange. The divisor-sign rule and the in-range refinement below are
+//     what the green phase must implement.
+//   * FDiv with a zero-spanning divisor — fdiv_bounds evaluates four corners
+//     unconditionally, which EXCLUDES reachable values once the divisor
+//     interval crosses zero. That is a live unsoundness, not a missing
+//     optimization.
 // ===========================================================================
 import std;
 import boost.ut;
@@ -182,28 +191,126 @@ ut::suite sym_bounds_suite = [] {
   // toward -inf. With 0 excluded from the divisor interval, floordiv is
   // monotone in each argument separately over the box, so the extrema sit at
   // corners. With 0 included there is no finite bound, so widen to full range.
-  "FDiv: corners, and full range when the divisor spans zero"_test = [] {
+  "FDiv: corners when the divisor is zero-free"_test = [] {
     bound_is(bounds(floordiv(fresh(0, 7), 2)), Bound{0, 3}, "[0,7] // 2");
     bound_is(bounds(floordiv(fresh(-7, 7), 2)), Bound{-4, 3}, "[-7,7] // 2");
     bound_is(bounds(floordiv(fresh(0, 7), -2)), Bound{-4, 0}, "[0,7] // -2");
-    bound_is(bounds(floordiv(fresh(), fresh(-1, 1))), kFull,
-             "divisor [-1,1] spans zero");
     bound_is(bounds(floordiv(fresh(0, 7), 1)), Bound{0, 7}, "[0,7] // 1");
+
+    // A VARIABLE divisor that stays clear of zero must still use the corners
+    // and must not be widened defensively. Corners: 0//2, 0//4, 7//2, 7//4.
+    bound_is(bounds(floordiv(fresh(0, 7), fresh(2, 4))), Bound{0, 3},
+             "[0,7] // [2,4]  (zero-free variable divisor)");
+    bound_is(bounds(floordiv(fresh(0, 7), fresh(-4, -2))), Bound{-4, 0},
+             "[0,7] // [-4,-2]  (zero-free variable divisor)");
   };
 
-  // DECISION §2: for a CONSTANT divisor c != 0, floor-mod lands in [0, c-1]
-  // when c > 0 and [c+1, 0] when c < 0 (the result takes the divisor's sign and
-  // |r| < |c|). Any other divisor widens to full range. The tighter "operand is
-  // already in range" refinement is Day 2.
+  // DECISION (Day 2 §0b): if the divisor interval CONTAINS 0, the bound is the
+  // full range. Corner evaluation is valid only where floor-division is
+  // monotone across the box, and that fails the moment the divisor crosses
+  // zero: the magnitude collapses toward zero in the INTERIOR, so the extrema
+  // are not at the corners.
+  //
+  // Day 1 specified this carve-out and did not implement it, and the fuzz did
+  // not catch it because the generator only ever emitted non-zero CONSTANT
+  // divisors -- a zero-spanning divisor interval was never constructed.
+  // tests/test_sym_soundness.cpp now emits variable divisors too.
+  "FDiv: a divisor interval containing zero admits no finite bound"_test = [] {
+    // THE counterexample. Corners give [-1, 0] -- 10//-100 == -1, 10//100 == 0
+    // -- but d == 1 reaches 10, so the corner bound EXCLUDES reachable values.
+    // That is the failure mode that silently produces wrong addresses.
+    bound_is(bounds(floordiv(fresh(10, 10), fresh(-100, 100))), kFull,
+             "[10,10] // [-100,100]  (corners wrongly give [-1,0])");
+
+    // Zero at an endpoint counts as containing zero. Corners here reach into
+    // sat_fdiv(_, 0), whose saturated result is a fault value, not a
+    // reachable one.
+    bound_is(bounds(floordiv(fresh(10, 10), fresh(0, 5))), kFull,
+             "[10,10] // [0,5]  (zero at the lower endpoint)");
+    bound_is(bounds(floordiv(fresh(-6, 6), fresh(-2, 0))), kFull,
+             "[-6,6] // [-2,0]  (zero at the upper endpoint)");
+
+    // Kept from Day 1, but it is NOT the guard: with an UNBOUNDED numerator the
+    // corners widen to the full range regardless, so this case passed even
+    // while the carve-out was missing. The bounded-numerator cases above are
+    // what actually pins the rule.
+    bound_is(bounds(floordiv(fresh(), fresh(-1, 1))), kFull,
+             "divisor [-1,1] spans zero  (passes accidentally, see comment)");
+  };
+
+  // DECISION (Day 2 §0a): floor-mod satisfies imod(a,c) == a - sat_fdiv(a,c)*c,
+  // so the SIGN OF THE RESULT FOLLOWS THE DIVISOR and |r| < |c|. That gives a
+  // rule keyed on the divisor INTERVAL, not just on a constant divisor as Day 1
+  // assumed:
+  //
+  //   divisor interval contains 0        -> full range
+  //   divisor all positive, d = vmax     -> [0, d-1]
+  //   divisor all negative, c = vmin     -> [c+1, 0]
   //
   // The dividend must be a VARIABLE: mod(sym_const(a), sym_const(b)) is
   // constant-folded by add_expr and never becomes a Mod node.
-  "Mod: constant divisor pins the residue interval"_test = [] {
+  "Mod: the divisor interval pins the residue interval"_test = [] {
     bound_is(bounds(mod(fresh(), 5)), Bound{0, 4}, "unbounded % 5");
     bound_is(bounds(mod(fresh(), -5)), Bound{-4, 0}, "unbounded % -5");
+
+    // A variable divisor is bounded by its widest magnitude, so the positive
+    // case takes vmax and the negative case takes vmin.
+    bound_is(bounds(mod(fresh(), fresh(2, 5))), Bound{0, 4},
+             "unbounded % [2,5]  (d = vmax)");
+    bound_is(bounds(mod(fresh(), fresh(1, 3))), Bound{0, 2},
+             "unbounded % [1,3]  (d = vmax)");
+    bound_is(bounds(mod(fresh(), fresh(-5, -2))), Bound{-4, 0},
+             "unbounded % [-5,-2]  (c = vmin)");
+
+    // A divisor that can be zero has no finite residue bound.
+    bound_is(bounds(mod(fresh(), fresh(-1, 1))), kFull,
+             "divisor [-1,1] spans zero");
+    bound_is(bounds(mod(fresh(), fresh(0, 4))), kFull,
+             "divisor [0,4] contains zero at an endpoint");
+  };
+
+  // REFINEMENT: when the dividend already sits inside a SINGLE residue window,
+  // the mod is inert and the bound is the dividend's own interval. This is what
+  // later lets the rewriter prove `j % C -> j`, so it is load-bearing rather
+  // than cosmetic.
+  //
+  // The refined interval is always a subset of the general row above, so
+  // letting the refinement win is sound -- there is no precedence conflict.
+  "Mod: an in-range dividend refines to itself"_test = [] {
+    bound_is(bounds(mod(fresh(0, 2), 3)), Bound{0, 2}, "[0,2] % 3  (inert)");
+    bound_is(bounds(mod(fresh(1, 2), 5)), Bound{1, 2}, "[1,2] % 5  (inert)");
+    bound_is(bounds(mod(fresh(0, 0), 4)), Bound{0, 0}, "[0,0] % 4  (inert)");
+    bound_is(bounds(mod(fresh(-2, 0), -3)), Bound{-2, 0}, "[-2,0] % -3  (inert)");
+    bound_is(bounds(mod(fresh(-2, -1), -5)), Bound{-2, -1},
+             "[-2,-1] % -5  (inert)");
+  };
+
+  // The refinement needs the dividend fully inside ONE residue window:
+  // `a.vmax - a.vmin < c` is NOT sufficient, because a narrow window can still
+  // straddle a multiple of c and wrap.
+  "Mod: a straddling window must not refine"_test = [] {
+    // Width 1 < 3, but 2 % 3 == 2 while 3 % 3 == 0, so [2,3] would be UNSOUND.
+    // The guard is a.vmax < c, not a.vmax - a.vmin < c.
+    bound_is(bounds(mod(fresh(2, 3), 3)), Bound{0, 2},
+             "[2,3] % 3  (window straddles 3, must not refine)");
+    bound_is(bounds(mod(fresh(0, 3), 3)), Bound{0, 2},
+             "[0,3] % 3  (vmax == c, not < c)");
+    bound_is(bounds(mod(fresh(-1, 2), 3)), Bound{0, 2},
+             "[-1,2] % 3  (vmin < 0)");
     bound_is(bounds(mod(fresh(-3, 3), 8)), Bound{0, 7},
-             "[-3,3] % 8  (no Day 1 refinement)");
-    bound_is(bounds(mod(fresh(), fresh(1, 3))), kFull, "non-constant divisor");
+             "[-3,3] % 8  (vmin < 0)");
+
+    // Negative mirror: -4 % -3 == -1 but -3 % -3 == 0, so [-4,-3] would be
+    // unsound; the guard is a.vmin > c.
+    bound_is(bounds(mod(fresh(-4, -3), -3)), Bound{-2, 0},
+             "[-4,-3] % -3  (window straddles -3, must not refine)");
+    bound_is(bounds(mod(fresh(-3, 0), -3)), Bound{-2, 0},
+             "[-3,0] % -3  (vmin == c, not > c)");
+
+    // The refinement is stated for a CONSTANT divisor only. A variable divisor
+    // whose interval happens to admit it stays on the general rule.
+    bound_is(bounds(mod(fresh(0, 2), fresh(3, 4))), Bound{0, 3},
+             "[0,2] % [3,4]  (non-constant divisor, no refinement)");
   };
 
   // These must not trip UBSan: INT64_MIN + INT64_MIN is undefined behaviour,
@@ -216,7 +323,7 @@ ut::suite sym_bounds_suite = [] {
     const Bound b = bounds(fresh() + 1);
     value_is(b.vmax, std::numeric_limits<std::int64_t>::max(),
              "unbounded + 1 wrapped vmax");
-    value_is(b.vmin, std::numeric_limits<std::int64_t>::min(),
+    value_is(b.vmin, std::numeric_limits<std::int64_t>::min() + 1,
              "unbounded + 1 wrapped vmin");
   };
 

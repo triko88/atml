@@ -60,8 +60,24 @@ add_test(NAME atml_tests COMMAND atml_tests)
 # target) and `import boost.ut;`. As above, atml::atml supplies main() and
 # Boost.UT's runner executes the suites at program exit.
 # ---------------------------------------------------------------------------
+# Helpers shared by the Day 2 Sym tests (failure formatting, the fresh-name
+# pool, seed selection). A test-local named module, so it needs its own
+# CXX_MODULES file set; PUBLIC linkage to atml::atml because its interface
+# mentions atml::Sym and consumers must see the same BMI.
+add_library(test_support STATIC)
+target_sources(test_support
+    PUBLIC
+        FILE_SET CXX_MODULES FILES test_support.cppm
+)
+target_link_libraries(test_support PUBLIC atml::atml)
+target_compile_options(test_support PRIVATE
+  $<$<CXX_COMPILER_ID:GNU,Clang>: -Wall -Wextra -Wpedantic -Werror>
+  $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+)
+
 foreach(core_test IN ITEMS test_dtype test_sym test_dim
-                           test_sym_bounds test_sym_soundness)
+                           test_sym_bounds test_sym_soundness
+                           test_sym_simplify test_sym_rewrite_property)
     add_executable(${core_test} ${core_test}.cpp)
     target_link_libraries(${core_test}
         PRIVATE
@@ -71,12 +87,19 @@ foreach(core_test IN ITEMS test_dtype test_sym test_dim
     add_test(NAME ${core_test} COMMAND ${core_test})
 endforeach()
 
+# The Day 2 rewrite tests are the only ones that use the shared helper module;
+# the Day 1 files keep their own local copies and are deliberately left alone.
+foreach(rewrite_test IN ITEMS test_sym_simplify test_sym_rewrite_property)
+    target_link_libraries(${rewrite_test} PRIVATE test_support)
+endforeach()
+
 # The Phase A bounds tests are new code, so they are held to the same warning
 # bar as the library itself. (The older core tests predate this and are left
 # alone.) Sanitizers come from atml's PUBLIC flags -- see ATML_SANITIZE in the
 # top-level CMakeLists.txt; putting them on the library is what makes the
 # bounds propagation code itself instrumented, not just the test TU.
-foreach(strict_test IN ITEMS test_sym_bounds test_sym_soundness)
+foreach(strict_test IN ITEMS test_sym_bounds test_sym_soundness
+                             test_sym_simplify test_sym_rewrite_property)
     target_compile_options(${strict_test} PRIVATE
       $<$<CXX_COMPILER_ID:GNU,Clang>: -Wall -Wextra -Wpedantic -Werror>
       $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>

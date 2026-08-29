@@ -18,6 +18,18 @@
 //      interval arithmetic over {+, *, //} is exact, so the computed bound must
 //      equal the observed min/max. This is what FAILS at red.
 //
+// DAY 2: corpus A now also emits VARIABLE divisors, including ones whose
+// interval straddles zero. Day 1's generator only ever produced non-zero
+// constant divisors, which is exactly why it never constructed the input that
+// exposes fdiv_bounds' missing zero-spanning carve-out — see
+// tests/test_sym_bounds.cpp §"FDiv: a divisor interval containing zero". This
+// makes corpus A FAIL at red, on a real live unsoundness rather than on a
+// missing optimization.
+//
+// Corpus B keeps constant divisors on purpose: with a variable divisor the
+// corners are no longer the extrema, so exactness would fail legitimately and
+// say nothing about the engine.
+//
 // Exactness must NOT be asserted on corpus A. With repeated variables the
 // dependency problem makes interval arithmetic legitimately loose: over
 // x in [0,3], `x - x` yields [-3,3] rather than [0,0], because the two
@@ -181,7 +193,18 @@ struct GenNode {
   atml::Sym expr;
   std::string dump;
   std::int64_t maxabs;
+
+  // Divisor sub-expressions that must be non-zero for a binding to be
+  // meaningful. Only variable divisors land here: constant divisors are
+  // non-zero by construction. Merged upward as the tree is built.
+  std::vector<atml::Sym> guards;
 };
+
+std::vector<atml::Sym> merge(std::vector<atml::Sym> a,
+                             const std::vector<atml::Sym>& b) {
+  a.insert(a.end(), b.begin(), b.end());
+  return a;
+}
 
 struct Gen {
   std::mt19937_64& rng;
@@ -189,6 +212,7 @@ struct Gen {
   std::vector<std::size_t> unused;  // remaining var indices, no-repeat mode
   bool allow_repeat;
   bool allow_mod;
+  bool allow_var_divisor;   // corpus A only -- see the header note
   int min_depth;
   int max_depth;
 };
@@ -202,9 +226,34 @@ std::int64_t draw_divisor(Gen& g) {
   return draw(g, 0, 1) == 1 ? d : -d;
 }
 
+// A divisor is either a non-zero constant (Day 1) or, in corpus A, one of the
+// declared variables. Reusing a declared variable is what keeps this simple:
+// make_vars already draws lo uniformly from [-4,4] with extent 1..8, so
+// zero-spanning divisor intervals arise naturally, and the variable is already
+// present in vs.binds so no extra binding machinery is needed.
+struct Divisor {
+  atml::Sym expr;
+  std::string dump;
+  std::int64_t maxabs;
+  bool needs_guard;
+};
+
+Divisor pick_divisor(Gen& g) {
+  if (g.allow_var_divisor and draw(g, 0, 1) == 1) {
+    const std::size_t idx = static_cast<std::size_t>(
+        draw(g, 0, static_cast<std::int64_t>(g.vars.size()) - 1));
+    const Var& v = g.vars[idx];
+    return {atml::sym(v.name, v.lo, v.hi), std::string{v.name},
+            std::max(iabs(v.lo), iabs(v.hi)), true};
+  }
+
+  const std::int64_t d = draw_divisor(g);
+  return {atml::sym_const(d), std::to_string(d), iabs(d), false};
+}
+
 GenNode const_leaf(Gen& g) {
   const std::int64_t v = draw(g, -kLeafMag, kLeafMag);
-  return {atml::sym_const(v), std::to_string(v), iabs(v)};
+  return {atml::sym_const(v), std::to_string(v), iabs(v), {}};
 }
 
 GenNode var_leaf(Gen& g) {
@@ -224,7 +273,7 @@ GenNode var_leaf(Gen& g) {
 
   const Var& v = g.vars[idx];
   return {atml::sym(v.name, v.lo, v.hi), std::string{v.name},
-          std::max(iabs(v.lo), iabs(v.hi))};
+          std::max(iabs(v.lo), iabs(v.hi)), {}};
 }
 
 GenNode gen(Gen& g, int depth) {
@@ -247,7 +296,7 @@ GenNode gen(Gen& g, int depth) {
       const GenNode l = gen(g, depth + 1);
       const GenNode r = gen(g, depth + 1);
       return {l.expr + r.expr, "(" + l.dump + " + " + r.dump + ")",
-              l.maxabs + r.maxabs};
+              l.maxabs + r.maxabs, merge(l.guards, r.guards)};
     }
 
     case 3: {  // Mul, degraded to Add when the product could overflow the oracle
@@ -256,25 +305,38 @@ GenNode gen(Gen& g, int depth) {
 
       if (l.maxabs != 0 and r.maxabs > kMulBound / l.maxabs)
         return {l.expr + r.expr, "(" + l.dump + " + " + r.dump + ")",
-                l.maxabs + r.maxabs};
+                l.maxabs + r.maxabs, merge(l.guards, r.guards)};
 
       return {l.expr * r.expr, "(" + l.dump + " * " + r.dump + ")",
-              l.maxabs * r.maxabs};
+              l.maxabs * r.maxabs, merge(l.guards, r.guards)};
     }
 
-    case 4: {  // FDiv by a nonzero constant of either sign
+    case 4: {  // FDiv by a nonzero constant, or (corpus A) by a variable
       const GenNode l = gen(g, depth + 1);
-      const std::int64_t d = draw_divisor(g);
-      // |a // d| <= |a| + 1 for |d| >= 1 (e.g. -1 // 2 == -1).
-      return {floordiv(l.expr, d), "fdiv(" + l.dump + ", " + std::to_string(d) + ")",
-              l.maxabs + 1};
+      const Divisor d = pick_divisor(g);
+
+      std::vector<atml::Sym> guards = l.guards;
+      if (d.needs_guard)
+        guards.push_back(d.expr);
+
+      // |a // d| <= |a| + 1 for |d| >= 1 (e.g. -1 // 2 == -1); bindings where
+      // the divisor is 0 are skipped, never evaluated.
+      return {floordiv(l.expr, d.expr),
+              "fdiv(" + l.dump + ", " + d.dump + ")",
+              l.maxabs + 1, std::move(guards)};
     }
 
     default: {  // Mod, corpus A only
       const GenNode l = gen(g, depth + 1);
-      const std::int64_t d = draw_divisor(g);
-      return {mod(l.expr, d), "mod(" + l.dump + ", " + std::to_string(d) + ")",
-              iabs(d)};
+      const Divisor d = pick_divisor(g);
+
+      std::vector<atml::Sym> guards = l.guards;
+      if (d.needs_guard)
+        guards.push_back(d.expr);
+
+      // |a % d| <= |d| - 1, so the widest divisor magnitude bounds it.
+      return {mod(l.expr, d.expr), "mod(" + l.dump + ", " + d.dump + ")",
+              std::max<std::int64_t>(1, d.maxabs), std::move(guards)};
     }
   }
 }
@@ -302,7 +364,7 @@ ut::suite sym_soundness_suite = [] {
 
     for (int iter = 0; iter < kIterations; iter++) {
       VarSet vs = make_vars(rng, 3, 5, std::int64_t{1} << 20);
-      Gen g{rng, vs.vars, {}, true, true, 2,
+      Gen g{rng, vs.vars, {}, true, true, true, 2,
             static_cast<int>(std::uniform_int_distribution<int>(3, 6)(rng))};
 
       const GenNode n = gen(g, 0);
@@ -316,6 +378,14 @@ ut::suite sym_soundness_suite = [] {
         [&](const std::vector<std::int64_t>& pt) {
           if (violated)
             return;
+
+          // A divisor of 0 is a fault, not a value: sat_fdiv returns a
+          // saturated sentinel that no legal evaluation can produce, so
+          // asserting containment on it would be meaningless.
+          for (const Sym& guard : n.guards)
+            if (eval(guard, vs.binds) == 0)
+              return;
+
           checked++;
           const std::int64_t got = eval(n.expr, vs.binds);
           if (got < b.vmin or got > b.vmax) {
@@ -372,7 +442,7 @@ ut::suite sym_soundness_suite = [] {
       std::vector<std::size_t> unused(vs.vars.size());
       std::iota(unused.begin(), unused.end(), std::size_t{0});
 
-      Gen g{rng, vs.vars, unused, false, false, 2,
+      Gen g{rng, vs.vars, unused, false, false, false, 2,
             static_cast<int>(std::uniform_int_distribution<int>(3, 6)(rng))};
 
       const GenNode n = gen(g, 0);
@@ -444,8 +514,8 @@ ut::suite sym_soundness_suite = [] {
       std::mt19937_64 r1(branch);
       std::mt19937_64 r2(branch);
 
-      Gen g1{r1, vs.vars, {}, true, true, 2, 5};
-      Gen g2{r2, vs.vars, {}, true, true, 2, 5};
+      Gen g1{r1, vs.vars, {}, true, true, true, 2, 5};
+      Gen g2{r2, vs.vars, {}, true, true, true, 2, 5};
 
       const GenNode n1 = gen(g1, 0);
       const GenNode n2 = gen(g2, 0);

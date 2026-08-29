@@ -5,7 +5,8 @@
 #   atml/
 #     CMakeLists.txt          <- this file
 #     src/atml_dim.cppm       <- primary interface of atml.core (Dim API)
-#     src/atml_sym.cppm       <- atml.core:sym partition (Sym, Bindings)
+#     src/atml_sym.cppm       <- atml.core:sym partition (Sym, Bindings, Bound)
+#     src/atml_rewrite.cppm   <- atml.core:rewrite partition (simplify, to_string)
 #     src/atml_dtype.cppm     <- atml.core:dtype partition (DType, f16)
 #     src/atml.cpp            <- entry point (provides main())
 #     tests/CMakeLists.txt    <- unit tests (Boost.UT, wired in below)
@@ -54,6 +55,7 @@ target_sources(atml
             src/atml_core.cppm
             src/atml_dtype.cppm
             src/atml_sym.cppm
+            src/atml_rewrite.cppm
             src/atml_dim.cppm
 )
 
@@ -65,8 +67,8 @@ add_library(atml::atml ALIAS atml)
 # ---------------------------------------------------------------------------
 # 2. Language standard
 # ---------------------------------------------------------------------------
-# PUBLIC: code that links atml is also compiled as (at least) C++23.
-target_compile_features(atml PUBLIC cxx_std_23)
+# PUBLIC: code that links atml is also compiled as (at least) C++26.
+target_compile_features(atml PUBLIC cxx_std_26)
 
 # PRIVATE: the compiler options are exclusively for atml.
 target_compile_options(atml PRIVATE

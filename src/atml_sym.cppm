@@ -35,47 +35,45 @@ namespace atml::intern {
     std::numeric_limits<std::int64_t>::max()
   };
 
+  constexpr Bound kInvertRange {
+    std::numeric_limits<std::int64_t>::max(),
+    std::numeric_limits<std::int64_t>::min()
+  };
+
   constexpr Bound add_bounds(const Bound& left, const Bound& right) {
-    std::int64_t vmin, vmax;
+    return Bound {
+      std::saturating_add(left.vmin, right.vmin),
+      std::saturating_add(left.vmax, right.vmax)
+    };
+  }
 
-    if (__builtin_add_overflow(left.vmin, right.vmin, &vmin)) [[unlikely]]
-      vmin = std::numeric_limits<std::int64_t>::min();
-
-    if (__builtin_add_overflow(left.vmax, right.vmax, &vmax)) [[unlikely]]
-      vmax = std::numeric_limits<std::int64_t>::max();
-
-    return Bound{vmin, vmax};
+  constexpr Bound sub_bounds(const Bound& left, const Bound& right) {
+    return Bound{
+      std::saturating_sub(left.vmin, right.vmin),
+      std::saturating_sub(left.vmax, right.vmax)
+    };
   }
 
   constexpr std::int64_t sat_fdiv(std::int64_t left, std::int64_t right) {
-    if (right == 0) {
-      return (left >= 0) ?
-        std::numeric_limits<std::int64_t>::max():
-        std::numeric_limits<std::int64_t>::min();
+    if (right == 0) [[unlikely]] {
+      return (left < 0) ?
+        std::numeric_limits<std::int64_t>::min():
+        std::numeric_limits<std::int64_t>::max();
     }
 
     if (left == std::numeric_limits<std::int64_t>::min() and right == -1)
       return std::numeric_limits<std::int64_t>::max();
 
-    std::int64_t res = left / right;
-    std::int64_t rem = left % right;
+    bool is_negative = (left < 0) ^ (right < 0);
+    bool has_remainder = (left % right != 0);
 
-    if (rem != 0 and ((left ^ right) < 0))
-      res--;
-
-    return res;
-  }
-
-  constexpr std::int64_t sat_mul(const std::int64_t left, const std::int64_t right) {
-    std::int64_t result;
-
-    if (__builtin_mul_overflow(left, right, &result)) [[unlikely]] {
-      return ((left > 0) == (right > 0)) ?
-        std::numeric_limits<std::int64_t>::max():
-        std::numeric_limits<std::int64_t>::min();
+    if (is_negative and has_remainder) {
+      left = std::saturating_sub(left, (right > 0) ?
+        std::saturating_sub(right, std::int64_t{1}):
+        std::saturating_add(right, std::int64_t{1}));
     }
 
-    return result;
+    return std::saturating_div(left, right);
   }
 
   constexpr std::int64_t imod(std::int64_t left, std::int64_t right) {
@@ -84,10 +82,10 @@ namespace atml::intern {
 
   constexpr Bound mul_bounds(const Bound& left, const Bound& right) {
     std::array<std::int64_t, 4> corners {
-      sat_mul(left.vmin, right.vmin),
-      sat_mul(left.vmin, right.vmax),
-      sat_mul(left.vmax, right.vmin),
-      sat_mul(left.vmax, right.vmax)
+      std::saturating_mul(left.vmin, right.vmin),
+      std::saturating_mul(left.vmin, right.vmax),
+      std::saturating_mul(left.vmax, right.vmin),
+      std::saturating_mul(left.vmax, right.vmax)
     };
 
     return Bound{std::ranges::min(corners), std::ranges::max(corners)};
@@ -105,6 +103,42 @@ namespace atml::intern {
     };
 
     return Bound{std::ranges::min(corners), std::ranges::max(corners)};
+  }
+
+  constexpr Bound meet(const Bound& left, const Bound& right) {
+    return Bound{ std::max(left.vmin, right.vmin), std::min(left.vmax, right.vmax) };
+  }
+
+  constexpr Bound join(const Bound& left, const Bound& right) {
+    return Bound{ std::min(left.vmin, right.vmin), std::max(left.vmax, right.vmax) };
+  }
+
+  constexpr Bound mod_half(const Bound& left, const Bound& right) {
+    if (right.vmin > right.vmax)
+      return kInvertRange;
+
+    const bool pos = right.vmin >= 0;
+    const bool is_const = right.vmin == right.vmax;
+
+    const bool in_window = is_const and 
+      (pos ? (left.vmin >= 0 and left.vmax < right.vmin):
+       (left.vmax <= 0 and left.vmin > right.vmax));
+
+    const Bound general = pos
+      ? Bound{0, std::saturating_sub(right.vmax, std::int64_t{1})}:
+      Bound{std::saturating_sub(right.vmin, std::int64_t{-1}), 0};
+
+    return in_window ? meet(general, left) : general;
+  }
+
+  constexpr Bound mod_bounds(const Bound& left, const Bound& right) {
+    if (right.vmin <= 0 and right.vmax >= 0)
+      return kFullRange;
+
+    const Bound kPosHalf = Bound{std::max(right.vmin, std::int64_t{1}), right.vmax};
+    const Bound kNegHalf = Bound{right.vmin, std::min(std::int64_t{-1}, right.vmax)};
+
+    return join(mod_half(left, kPosHalf), mod_half(left, kNegHalf));
   }
 
   struct Tables {
@@ -193,7 +227,7 @@ namespace atml::intern {
       case Op::Add: expr_bound = add_bounds(lhs->bound, rhs->bound); break;
       case Op::Mul: expr_bound = mul_bounds(lhs->bound, rhs->bound); break;
       case Op::FDiv: expr_bound = fdiv_bounds(lhs->bound, rhs->bound); break;
-      case Op::Mod: break;
+      case Op::Mod: expr_bound = mod_bounds(lhs->bound, rhs->bound); break;
     }
 
     if (inserted) [[likely]]
