@@ -20,7 +20,7 @@ module. For the implementation guide, please refer
 [Bjarne's 21st century C++ paper](https://www.stroustrup.com/21st-Century-C++.pdf).
 
 ## Dependency
-Any C++ compiler supporting C++23. GCC and Clang will work out of the box. Use
+Any C++ compiler supporting C++26. GCC and Clang will work out of the box. Use
 `ninja` to scan for modules.
 
 ## Current state
