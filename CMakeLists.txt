@@ -6,6 +6,7 @@
 #     CMakeLists.txt          <- this file
 #     src/atml_dim.cppm       <- primary interface of atml.core (Dim API)
 #     src/atml_sym.cppm       <- atml.core:sym partition (Sym, Bindings, Bound)
+#     src/atml_sym.cpp        <- atml.core implementation unit (the sym engine)
 #     src/atml_rewrite.cppm   <- atml.core:rewrite partition (simplify, to_string)
 #     src/atml_dtype.cppm     <- atml.core:dtype partition (DType, f16)
 #     src/atml.cpp            <- entry point (provides main())
@@ -43,8 +44,12 @@ set(CMAKE_CXX_MODULE_STD ON)
 # Static by default; consumers can flip to shared via -DBUILD_SHARED_LIBS=ON.
 #    Both are scanned for module dependencies because the target owns a
 #    CXX_MODULES file set (below).
+# atml_sym.cpp is a module IMPLEMENTATION unit, not an interface: it belongs in
+# the plain source list, never in the CXX_MODULES file set below (it produces no
+# BMI, it only provides definitions for the :sym partition).
 add_library(atml
     src/atml.cpp
+    src/atml_sym.cpp
 )
 
 # The module interface unit, exposed as a PUBLIC module file set so in-tree
